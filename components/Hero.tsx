@@ -27,10 +27,16 @@ export default function Hero() {
       if (session) loadRepos();
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUser(session?.user ?? null);
-      if (session) loadRepos();
-      else { setRepos([]); setSelected(null); }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        setUser(session?.user ?? null);
+        loadRepos();
+      }
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setRepos([]);
+        setSelected(null);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -38,10 +44,15 @@ export default function Hero() {
 
   async function loadRepos() {
     setLoadingRepos(true);
-    const res = await fetch("/api/repos");
-    const data = await res.json();
-    setRepos(data.repos || []);
-    setLoadingRepos(false);
+    try {
+      const res = await fetch("/api/repos");
+      const data = await res.json();
+      setRepos(data.repos || []);
+    } catch {
+      setRepos([]);
+    } finally {
+      setLoadingRepos(false);
+    }
   }
 
   async function signInWithGitHub() {
@@ -110,12 +121,16 @@ export default function Hero() {
               <p className="text-sm text-gray-400 text-center py-4">
                 Loading your repos...
               </p>
-            ) : (
+            ) : repos.length > 0 ? (
               <RepoList
                 repos={repos}
                 selected={selected}
                 onSelect={(r) => { setSelected(r); setMessage(""); }}
               />
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-4">
+                No repos found. Paste a URL below.
+              </p>
             )}
           </div>
         )}
