@@ -1,110 +1,86 @@
 "use client";
 
-import { useState } from "react";
-import Image from "next/image";
-import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
-export default function Header() {
-  const [isOpen, setIsOpen] = useState(false);
+export default function Navbar() {
+  const supabase = createClient();
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function signIn() {
+    await supabase.auth.signInWithOAuth({
+      provider: "github",
+      options: {
+        scopes: "repo read:user",
+        redirectTo: `${window.location.origin}/`,
+      },
+    });
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    setUser(null);
+  }
 
   return (
-    <header className="flex items-center justify-between px-6 py-3 md:py-4 shadow max-w-5xl rounded-full mx-auto w-full bg-white relative">
-      
-      {/* Logo */}
-      <Link href="/">
-        <Image
-          src="https://raw.githubusercontent.com/prebuiltui/prebuiltui/main/assets/dummyLogo/prebuiltuiDummyLogo.svg"
-          alt="Logo"
-          width={120}
-          height={40}
-        />
-      </Link>
+    <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between
+      px-6 py-4 bg-white/80 dark:bg-black/80 backdrop-blur-md
+      border-b border-gray-200 dark:border-gray-800">
 
-      {/* Nav */}
-      <nav
-        className={`absolute md:static top-0 left-0 h-full md:h-auto bg-white/50 backdrop-blur md:bg-transparent flex flex-col md:flex-row items-center justify-center gap-8 text-gray-900 text-sm font-normal transition-all duration-300 ${
-          isOpen ? "w-full" : "w-0 md:w-auto overflow-hidden md:overflow-visible"
-        }`}
+      <span
+        onClick={() => router.push("/")}
+        className="text-lg font-bold text-gray-900 dark:text-white cursor-pointer"
       >
-        <Link href="#" className="hover:text-indigo-600">
-          Products
-        </Link>
-        <Link href="#" className="hover:text-indigo-600">
-          Customer Stories
-        </Link>
-        <Link href="#" className="hover:text-indigo-600">
-          Pricing
-        </Link>
-        <Link href="#" className="hover:text-indigo-600">
-          Docs
-        </Link>
+        Readify
+      </span>
 
-        {/* Close Button (Mobile) */}
-        <button
-          onClick={() => setIsOpen(false)}
-          className="md:hidden text-gray-600"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </nav>
-
-      {/* Right Section */}
-      <div className="flex items-center space-x-4">
-        
-        {/* Theme Icon */}
-        <button className="size-8 flex items-center justify-center hover:bg-gray-100 transition border border-slate-300 rounded-md">
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 15 15"
-            fill="none"
-          >
-            <path
-              d="M7.5 10.39a2.889 2.889 0 1 0 0-5.779 2.889 2.889 0 0 0 0 5.778M7.5 1v.722m0 11.556V14M1 7.5h.722m11.556 0h.723m-1.904-4.596-.511.51m-8.172 8.171-.51.511m-.001-9.192.51.51m8.173 8.171.51.511"
-              stroke="#353535"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+      <div className="flex items-center gap-3">
+        {user ? (
+          <>
+            <button
+              onClick={() => router.push("/history")}
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+            >
+              History
+            </button>
+            <img
+              src={user.user_metadata?.avatar_url}
+              alt="avatar"
+              className="w-8 h-8 rounded-full"
             />
-          </svg>
-        </button>
-
-        {/* Signup */}
-        <Link
-          href="#"
-          className="hidden md:flex bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-indigo-700 transition"
-        >
-          Sign up
-        </Link>
-
-        {/* Open Menu (Mobile) */}
-        <button
-          onClick={() => setIsOpen(true)}
-          className="md:hidden text-gray-600"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            <button
+              onClick={signOut}
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+            >
+              Sign out
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={signIn}
+            className="flex items-center gap-2 bg-gray-900 dark:bg-white
+              dark:text-black text-white text-sm px-4 py-2 rounded-lg
+              hover:opacity-90 transition-opacity"
           >
-            <path d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+            </svg>
+            Sign in with GitHub
+          </button>
+        )}
       </div>
-    </header>
+    </nav>
   );
 }
