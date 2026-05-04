@@ -6,7 +6,16 @@ import { createClient } from "@/lib/supabase/client";
 import RepoList from "@/components/RepoList";
 import { Repo, Tone } from "@/types";
 
+// tell TS about the global puter object injected by the CDN script
+declare const puter: any;
+
 const tones: Tone[] = ["professional", "casual", "minimal"];
+
+const toneDescriptions: Record<Tone, string> = {
+  professional: "formal, comprehensive, and enterprise-grade",
+  casual: "friendly, conversational, and approachable",
+  minimal: "clean, concise, and straight to the point",
+};
 
 export default function Hero() {
   const supabase = createClient();
@@ -21,13 +30,16 @@ export default function Hero() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
 
+  // ── auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session) loadRepos();
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         setUser(session?.user ?? null);
         loadRepos();
@@ -42,6 +54,7 @@ export default function Hero() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // ── load repos from your existing /api/repos route ────────────────────────
   async function loadRepos() {
     setLoadingRepos(true);
     try {
@@ -55,6 +68,7 @@ export default function Hero() {
     }
   }
 
+  // ── GitHub OAuth via Supabase ─────────────────────────────────────────────
   async function signInWithGitHub() {
     await supabase.auth.signInWithOAuth({
       provider: "github",
@@ -65,6 +79,7 @@ export default function Hero() {
     });
   }
 
+  // ── core: fetch repo metadata then generate README with Puter AI ──────────
   async function handleSend() {
     const repoUrl = selected ? selected.url : message.trim();
     if (!repoUrl) return;
@@ -78,27 +93,139 @@ export default function Hero() {
     setError("");
 
     try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl, tone }),
+      // 1️⃣  parse owner/repo from URL
+      const match = repoUrl.match(/github\.com\/([^/]+)\/([^/?#]+)/);
+      if (!match)
+        throw new Error(
+          "Invalid GitHub URL — make sure it looks like github.com/owner/repo"
+        );
+      const [, owner, repo] = match;
+
+      // 2️⃣  fetch repo metadata from GitHub API
+      //     use the user's OAuth token so private repos work too
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.provider_token;
+
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}`,
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+      );
+
+      if (!ghRes.ok) {
+        const msg =
+          ghRes.status === 404
+            ? "Repo not found. Is it private? Sign in with GitHub to access private repos."
+            : `GitHub API error: ${ghRes.status}`;
+        throw new Error(msg);
+      }
+
+      const ghData = await ghRes.json();
+
+      // 3️⃣  optionally fetch partial file tree for better tech stack context
+      let extraContext = "";
+      try {
+        const treeRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
+          token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+        );
+        if (treeRes.ok) {
+          const treeData = await treeRes.json();
+          const files: string[] = (treeData.tree || [])
+            .map((f: any) => f.path as string)
+            .filter((p: string) => !p.includes("node_modules"))
+            .slice(0, 60);
+          extraContext = `\nFile tree (partial):\n${files.join("\n")}`;
+        }
+      } catch {
+        // not critical, skip silently
+      }
+
+      // 4️⃣  build the prompt
+      const prompt = `
+You are an expert technical writer. Generate a production-ready README.md for the GitHub repository below.
+
+## Repo Info
+Name: ${ghData.name}
+Full name: ${ghData.full_name}
+Description: ${ghData.description || "No description provided"}
+Primary language: ${ghData.language || "Unknown"}
+Topics/tags: ${ghData.topics?.join(", ") || "none"}
+Stars: ${ghData.stargazers_count} | Forks: ${ghData.forks_count}
+License: ${ghData.license?.name || "Not specified"}
+Homepage: ${ghData.homepage || "none"}
+${extraContext}
+
+## Tone
+Write in a ${toneDescriptions[tone]} style.
+
+## Required Sections
+Include ALL of the following sections in this order:
+1. Project title + a short tagline
+2. Badges (build status, license, language — use shields.io format)
+3. Description (2–3 sentences, what it does and why it matters)
+4. Features (bullet list)
+5. Tech Stack
+6. Getting Started (Prerequisites + Installation)
+7. Usage (with code examples if relevant)
+8. Contributing
+9. License
+
+## Rules
+- Return ONLY raw markdown. No explanation, no triple backticks wrapping the whole output.
+- Use real shields.io badge URLs based on the repo info above.
+- Keep it practical — a developer should be able to copy-paste and ship it.
+      `.trim();
+
+      // 5️⃣  call Puter AI — no API key needed, user's Puter account handles billing
+      const response = await puter.ai.chat(prompt, {
+        model: "gpt-4o-mini", // swap to "gpt-4o" for higher quality
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      sessionStorage.setItem("readify_result", JSON.stringify(data));
+
+      // Puter returns different shapes depending on model — handle all of them
+      const readme: string =
+        response?.message?.content?.[0]?.text ??
+        response?.message?.content ??
+        response?.text ??
+        response ??
+        "";
+
+      if (!readme) throw new Error("Puter returned an empty response. Try again.");
+
+      // 6️⃣  store result and navigate to the display page
+      sessionStorage.setItem(
+        "readify_result",
+        JSON.stringify({
+          readme,
+          repo: {
+            name: ghData.name,
+            fullName: ghData.full_name,
+            description: ghData.description,
+            language: ghData.language,
+            stars: ghData.stargazers_count,
+            url: ghData.html_url,
+          },
+          tone,
+          generatedAt: new Date().toISOString(),
+        })
+      );
+
       router.push("/generate");
     } catch (e: any) {
-      setError(e.message || "Something went wrong");
+      setError(e.message || "Something went wrong. Please try again.");
     } finally {
       setGenerating(false);
     }
   }
 
+  // ── render ─────────────────────────────────────────────────────────────────
   return (
-    <section className="w-full flex items-center justify-center min-h-screen px-4
-      bg-gradient-to-b from-white to-gray-100
-      dark:from-black dark:to-gray-900">
-
+    <section
+      className="w-full flex items-center justify-center min-h-screen px-4
+        bg-gradient-to-b from-white to-gray-100
+        dark:from-black dark:to-gray-900"
+    >
       <main className="w-full max-w-3xl text-center">
 
         {/* Hero text */}
@@ -125,7 +252,10 @@ export default function Hero() {
               <RepoList
                 repos={repos}
                 selected={selected}
-                onSelect={(r) => { setSelected(r); setMessage(""); }}
+                onSelect={(r) => {
+                  setSelected(r);
+                  setMessage("");
+                }}
               />
             ) : (
               <p className="text-sm text-gray-400 text-center py-4">
@@ -150,13 +280,14 @@ export default function Hero() {
           </div>
         )}
 
-        {/* URL input box */}
+        {/* URL input */}
         {!selected && (
-          <div className="max-w-xl w-full mx-auto mt-6 rounded-xl
-            bg-white/60 dark:bg-white/5 backdrop-blur-xl
-            border border-gray-200 dark:border-gray-700
-            shadow-lg focus-within:ring-2 focus-within:ring-indigo-500/40">
-
+          <div
+            className="max-w-xl w-full mx-auto mt-6 rounded-xl
+              bg-white/60 dark:bg-white/5 backdrop-blur-xl
+              border border-gray-200 dark:border-gray-700
+              shadow-lg focus-within:ring-2 focus-within:ring-indigo-500/40"
+          >
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
@@ -175,11 +306,10 @@ export default function Hero() {
               }
               rows={3}
             />
-
             <div className="flex justify-between items-center px-3 pb-3 pt-2">
               <p className="text-xs text-gray-500">
                 {user
-                  ? "Private repos supported"
+                  ? "Private repos supported via your GitHub token"
                   : "Sign in to access private repos"}
               </p>
             </div>
@@ -207,20 +337,43 @@ export default function Hero() {
         <button
           onClick={handleSend}
           disabled={generating || (!selected && !message.trim())}
-          className="mt-4 w-full max-w-xl mx-auto block bg-indigo-600 hover:bg-indigo-700
+          className="mt-4 w-full max-w-xl mx-auto flex items-center justify-center gap-2
+            bg-indigo-600 hover:bg-indigo-700
             disabled:opacity-40 disabled:cursor-not-allowed
             text-white font-semibold py-3 rounded-xl transition-colors"
         >
-          {generating
-            ? "Generating..."
-            : !user
-            ? "Sign in & Generate →"
-            : "Generate README →"}
+          {generating ? (
+            <>
+              <svg
+                className="animate-spin h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v8z"
+                />
+              </svg>
+              Generating...
+            </>
+          ) : !user ? (
+            "Sign in & Generate →"
+          ) : (
+            "Generate README →"
+          )}
         </button>
 
-        {error && (
-          <p className="mt-3 text-red-400 text-sm">{error}</p>
-        )}
+        {/* Error */}
+        {error && <p className="mt-3 text-red-400 text-sm">{error}</p>}
 
         {/* Guest nudge */}
         {!user && (
@@ -235,6 +388,21 @@ export default function Hero() {
           </p>
         )}
 
+        {/* Puter attribution */}
+        {user && (
+          <p className="mt-6 text-xs text-gray-500 dark:text-gray-600">
+            AI powered by{" "}
+            <a
+              href="https://puter.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-400 hover:underline"
+            >
+              Puter
+            </a>{" "}
+            — no API key required.
+          </p>
+        )}
       </main>
     </section>
   );
