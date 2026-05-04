@@ -4,17 +4,9 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import RepoList from "@/components/RepoList";
-import { Repo, Tone } from "@/types";
+import { Repo } from "@/types";
 
 declare const puter: any;
-
-const tones: Tone[] = ["professional", "casual", "minimal"];
-
-const toneDescriptions: Record<Tone, string> = {
-  professional: "formal, comprehensive, and enterprise-grade",
-  casual: "friendly, conversational, and approachable",
-  minimal: "clean, concise, and straight to the point",
-};
 
 function GitHubIcon({ className }: { className?: string }) {
   return (
@@ -40,7 +32,6 @@ export default function Hero() {
 
   const [user, setUser] = useState<any>(null);
   const [message, setMessage] = useState("");
-  const [tone, setTone] = useState<Tone>("professional");
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selected, setSelected] = useState<Repo | null>(null);
   const [loadingRepos, setLoadingRepos] = useState(false);
@@ -130,7 +121,8 @@ export default function Hero() {
 
       const ghData = await ghRes.json();
 
-      let extraContext = "";
+      // Fetch file tree
+      let fileTree: string[] = [];
       try {
         const treeRes = await fetch(
           `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
@@ -138,47 +130,82 @@ export default function Hero() {
         );
         if (treeRes.ok) {
           const treeData = await treeRes.json();
-          const files: string[] = (treeData.tree || [])
+          fileTree = (treeData.tree || [])
             .map((f: any) => f.path as string)
-            .filter((p: string) => !p.includes("node_modules"))
-            .slice(0, 60);
-          extraContext = `\nFile tree (partial):\n${files.join("\n")}`;
+            .filter((p: string) => !p.includes("node_modules") && !p.includes(".git"))
+            .slice(0, 80);
         }
       } catch { /* skip */ }
 
-      const prompt = `
-You are an expert technical writer. Generate a production-ready README.md for the GitHub repository below.
+      // Fetch key config/manifest files for deeper context
+      let extraContext = "";
+      const filesToCheck = [
+        "package.json", "pyproject.toml", "Cargo.toml", "go.mod",
+        "requirements.txt", "composer.json", "build.gradle", "pom.xml",
+      ];
+      for (const file of filesToCheck) {
+        if (fileTree.includes(file)) {
+          try {
+            const fileRes = await fetch(
+              `https://api.github.com/repos/${owner}/${repo}/contents/${file}`,
+              token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+            );
+            if (fileRes.ok) {
+              const fileData = await fileRes.json();
+              const decoded = atob(fileData.content.replace(/\n/g, ""));
+              extraContext += `\n\n### ${file}:\n${decoded.slice(0, 1500)}`;
+            }
+          } catch { /* skip */ }
+          break; // only need the first match
+        }
+      }
 
-## Repo Info
-Name: ${ghData.name}
-Full name: ${ghData.full_name}
-Description: ${ghData.description || "No description provided"}
-Primary language: ${ghData.language || "Unknown"}
-Topics/tags: ${ghData.topics?.join(", ") || "none"}
-Stars: ${ghData.stargazers_count} | Forks: ${ghData.forks_count}
-License: ${ghData.license?.name || "Not specified"}
-Homepage: ${ghData.homepage || "none"}
+      const prompt = `
+You are an expert open-source technical writer. Deeply analyze this GitHub repository and write the most accurate, useful README.md possible for it.
+
+## Repository Data
+
+**Name:** ${ghData.name}
+**Full name:** ${ghData.full_name}
+**Description:** ${ghData.description || "No description provided"}
+**Primary language:** ${ghData.language || "Unknown"}
+**Topics/tags:** ${ghData.topics?.join(", ") || "none"}
+**Stars:** ${ghData.stargazers_count} | **Forks:** ${ghData.forks_count}
+**License:** ${ghData.license?.name || "Not specified"}
+**Homepage:** ${ghData.homepage || "none"}
+**Is fork:** ${ghData.fork}
+**Default branch:** ${ghData.default_branch}
+**Created:** ${ghData.created_at} | **Last pushed:** ${ghData.pushed_at}
+
+### File tree:
+${fileTree.join("\n") || "Not available"}
 ${extraContext}
 
-## Tone
-Write in a ${toneDescriptions[tone]} style.
+## Instructions
 
-## Required Sections
-Include ALL of the following sections in this order:
-1. Project title + a short tagline
-2. Badges (build status, license, language — use shields.io format)
-3. Description (2–3 sentences, what it does and why it matters)
-4. Features (bullet list)
-5. Tech Stack
-6. Getting Started (Prerequisites + Installation)
-7. Usage (with code examples if relevant)
-8. Contributing
-9. License
+Read everything carefully and infer:
+- What this project actually does — go beyond the description, use the file tree and config files
+- What type of project it is: CLI tool, web app, library, API, framework, script, game, etc.
+- Who the audience is: end users, developers, data scientists, sysadmins, etc.
+- The right tone: a serious infrastructure library needs formal depth; a fun weekend project can be relaxed
+- Which sections genuinely apply — don't add sections that have no real content (e.g. don't add "Contributing" if it's a solo personal project with no contribution setup)
+- Real, accurate setup steps based on the language and config files detected
 
-## Rules
-- Return ONLY raw markdown. No explanation, no triple backticks wrapping the whole output.
-- Use real shields.io badge URLs based on the repo info above.
-- Keep it practical — a developer should be able to copy-paste and ship it.
+Write a README that feels like the actual project author wrote it — not a generic template. Make the description genuinely explain what the project does and why it exists. If it's a library, show real API usage. If it's a CLI, show real commands with flags. If it's a web app, explain how to run it locally.
+
+Always include:
+- Project title + a punchy one-liner
+- Shields.io badges relevant to this project (language, license, stars — use real URLs)
+- Clear description
+- Getting started / installation
+- Usage with concrete examples
+
+Only include other sections (Features, Contributing, API reference, Roadmap, etc.) if they are genuinely relevant.
+
+## Output rules
+- Return ONLY raw markdown. No explanation, no triple backticks wrapping the whole thing.
+- Use real shields.io badge URLs based on the data above.
+- Keep it practical — a developer should be able to clone and run this after reading it.
       `.trim();
 
       const response = await puter.ai.chat(prompt, { model: "gpt-4o-mini" });
@@ -205,7 +232,6 @@ Include ALL of the following sections in this order:
             owner,
             repoSlug: repo,
           },
-          tone,
           generatedAt: new Date().toISOString(),
         })
       );
@@ -235,7 +261,6 @@ Include ALL of the following sections in this order:
               alt="avatar"
               className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-gray-300 dark:border-gray-600"
             />
-            {/* Show name on sm+ screens */}
             <span className="hidden sm:block text-xs text-gray-500 dark:text-gray-400 max-w-[120px] truncate">
               {user.user_metadata?.full_name}
             </span>
@@ -264,7 +289,6 @@ Include ALL of the following sections in this order:
       <section className="flex items-start justify-center min-h-screen px-4 pt-20 sm:pt-28 pb-16">
         <main className="w-full max-w-3xl text-center">
 
-          {/* Headline */}
           <h1 className="text-2xl sm:text-3xl md:text-[40px] font-semibold text-gray-900 dark:text-white leading-tight">
             {user
               ? `Hey ${user.user_metadata?.full_name?.split(" ")[0]}, pick a repo`
@@ -277,7 +301,7 @@ Include ALL of the following sections in this order:
               : "Paste a GitHub repo URL and get a production-ready README instantly."}
           </p>
 
-          {/* ── Repo grid — shown when signed in ── */}
+          {/* ── Repo grid ── */}
           {user && (
             <div className="mt-6 sm:mt-8 text-left">
               {loadingRepos ? (
@@ -352,23 +376,6 @@ Include ALL of the following sections in this order:
             </div>
           </div>
 
-          {/* Tone selector */}
-          <div className="flex gap-2 justify-center mt-4 sm:mt-5 flex-wrap">
-            {tones.map((t) => (
-              <button
-                key={t}
-                onClick={() => setTone(t)}
-                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium capitalize transition-colors active:scale-95 ${
-                  tone === t
-                    ? "bg-indigo-600 text-white"
-                    : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-
           {/* Generate button */}
           <button
             onClick={handleSend}
@@ -405,10 +412,7 @@ Include ALL of the following sections in this order:
 
           {!user && (
             <p className="mt-4 text-xs sm:text-sm text-gray-400">
-              <button
-                onClick={signInWithGitHub}
-                className="text-indigo-400 hover:underline"
-              >
+              <button onClick={signInWithGitHub} className="text-indigo-400 hover:underline">
                 Sign in with GitHub
               </button>{" "}
               to browse your repos.
@@ -418,12 +422,7 @@ Include ALL of the following sections in this order:
           {user && (
             <p className="mt-6 text-xs text-gray-400 dark:text-gray-600">
               AI powered by{" "}
-              <a
-                href="https://puter.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-indigo-400 hover:underline"
-              >
+              <a href="https://puter.com" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">
                 Puter
               </a>{" "}
               — no API key required.
