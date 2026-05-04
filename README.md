@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Readify
 
-## Getting Started
+![GitHub stars](https://img.shields.io/github/stars/JesseJohn7/readify?style=social) ![GitHub forks](https://img.shields.io/github/forks/JesseJohn7/readify?style=social) ![MIT License](https://img.shields.io/badge/license-MIT-blue)
 
-First, run the development server:
+Readify is a web application that enables you to generate production-ready README files directly from your GitHub repositories.
+
+## Features
+
+- **Generate README Files**: Automatically generates README documentation for your GitHub projects.
+- **View Previous Generations**: Access and manage previously generated README documents with ease.
+- **User Authentication**: Secure user sessions managed through Supabase.
+
+## Technical Stack
+
+- **Frontend**: React, Next.js
+- **Styling**: Tailwind CSS
+- **Backend**: Supabase
+- **Others**: TypeScript
+
+## Installation
+
+To get started with Readify, clone the repository and install the dependencies:
+
+```bash
+git clone https://github.com/JesseJohn7/readify.git
+cd readify
+npm install
+```
+
+## Usage
+
+To run the application in development mode, use the following command:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Visit `http://localhost:3000` in your browser to view the app.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Generating a README
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The README generation can be accessed through an interface where you can select a GitHub repository. The necessary API calls are handled on the backend, ensuring user authentication through Supabase.
 
-## Learn More
+#### API Endpoints
 
-To learn more about Next.js, take a look at the following resources:
+**GET /api/repos**  
+Fetches the user's GitHub repositories (requires authentication).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**GET /api/history**  
+Retrieves the history of previously generated README files for the authenticated user.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**DELETE /api/history**  
+Deletes a selected README history entry of the authenticated user.
 
-## Deploy on Vercel
+## Roadmap
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Improve UI/UX based on user feedback.
+- Implement additional features for README customization.
+- Support for more markdown elements in the generated READMEs.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details. 
+
+## Demo
+
+You can view a live demo of Readify at [readify-delta.vercel.app](https://readify-delta.vercel.app).
+
+## Contributing
+
+Contributions are welcome! Please submit a pull request for any changes or enhancements.
