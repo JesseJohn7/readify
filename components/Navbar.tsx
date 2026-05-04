@@ -68,9 +68,6 @@ export default function Navbar() {
               alt="avatar"
               className="w-8 h-8 rounded-full"
             />
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              {user.user_metadata?.full_name?.split(" ")[0]}
-            </span>
             <button
               onClick={signOut}
               className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
