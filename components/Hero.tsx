@@ -16,7 +16,6 @@ const toneDescriptions: Record<Tone, string> = {
   minimal: "clean, concise, and straight to the point",
 };
 
-// ── Icons ─────────────────────────────────────────────────────────────────────
 function GitHubIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -223,52 +222,56 @@ Include ALL of the following sections in this order:
     <div className="min-h-screen bg-gradient-to-b from-white to-gray-100 dark:from-black dark:to-gray-900">
 
       {/* ── Navbar ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4
+      <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4
         bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800">
-        <span className="font-semibold text-gray-900 dark:text-white tracking-tight">
+        <span className="font-semibold text-gray-900 dark:text-white tracking-tight text-sm sm:text-base">
           Readify
         </span>
 
         {user ? (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <img
               src={user.user_metadata?.avatar_url}
               alt="avatar"
-              className="w-8 h-8 rounded-full border border-gray-300 dark:border-gray-600"
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-gray-300 dark:border-gray-600"
             />
+            {/* Show name on sm+ screens */}
+            <span className="hidden sm:block text-xs text-gray-500 dark:text-gray-400 max-w-[120px] truncate">
+              {user.user_metadata?.full_name}
+            </span>
             <button
               onClick={signOut}
               title="Sign out"
-              className="text-gray-400 hover:text-red-400 transition-colors"
+              className="p-1.5 text-gray-400 hover:text-red-400 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
             >
-              <LogOutIcon className="w-5 h-5" />
+              <LogOutIcon className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
         ) : (
           <button
             onClick={signInWithGitHub}
-            className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg
+            className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium px-3 sm:px-4 py-2 rounded-lg
               bg-gray-900 dark:bg-white text-white dark:text-gray-900
-              hover:opacity-90 transition-opacity"
+              hover:opacity-90 transition-opacity active:scale-95"
           >
-            <GitHubIcon className="w-4 h-4" />
-            Sign in
+            <GitHubIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span>Sign in</span>
           </button>
         )}
       </nav>
 
       {/* ── Main content ── */}
-      <section className="flex items-start justify-center min-h-screen px-4 pt-28 pb-16">
+      <section className="flex items-start justify-center min-h-screen px-4 pt-20 sm:pt-28 pb-16">
         <main className="w-full max-w-3xl text-center">
 
           {/* Headline */}
-          <h1 className="text-4xl md:text-[40px] font-semibold text-gray-900 dark:text-white">
+          <h1 className="text-2xl sm:text-3xl md:text-[40px] font-semibold text-gray-900 dark:text-white leading-tight">
             {user
               ? `Hey ${user.user_metadata?.full_name?.split(" ")[0]}, pick a repo`
               : "What do you want to create?"}
           </h1>
 
-          <p className="mt-3 text-gray-500 dark:text-gray-400">
+          <p className="mt-2 sm:mt-3 text-sm sm:text-base text-gray-500 dark:text-gray-400 px-2">
             {user
               ? "Select a repo below or paste any GitHub URL."
               : "Paste a GitHub repo URL and get a production-ready README instantly."}
@@ -276,10 +279,10 @@ Include ALL of the following sections in this order:
 
           {/* ── Repo grid — shown when signed in ── */}
           {user && (
-            <div className="mt-8 text-left">
+            <div className="mt-6 sm:mt-8 text-left">
               {loadingRepos ? (
                 <div className="flex items-center justify-center py-8 gap-2 text-sm text-gray-400">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                   </svg>
@@ -301,24 +304,25 @@ Include ALL of the following sections in this order:
 
           {/* Selected repo pill */}
           {selected && (
-            <div className="flex items-center justify-center gap-2 mt-5">
-              <span className="text-sm bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded-full">
+            <div className="flex items-center justify-center gap-2 mt-4 sm:mt-5 flex-wrap px-4">
+              <span className="text-xs sm:text-sm bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded-full truncate max-w-[240px] sm:max-w-xs">
                 {selected.fullName}
               </span>
               <button
                 onClick={() => setSelected(null)}
-                className="text-gray-400 hover:text-white text-xs transition-colors"
+                className="text-gray-400 hover:text-white text-xs transition-colors p-1 rounded"
+                aria-label="Clear selection"
               >
                 ✕
               </button>
             </div>
           )}
 
-          {/* ── URL input — always visible ── */}
-          <div className="max-w-xl w-full mx-auto mt-6 rounded-xl
+          {/* ── URL input ── */}
+          <div className="w-full mx-auto mt-5 sm:mt-6 rounded-xl
             bg-white/60 dark:bg-white/5 backdrop-blur-xl
             border border-gray-200 dark:border-gray-700
-            shadow-lg focus-within:ring-2 focus-within:ring-indigo-500/40">
+            shadow-lg focus-within:ring-2 focus-within:ring-indigo-500/40 transition-shadow">
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
@@ -329,8 +333,8 @@ Include ALL of the following sections in this order:
                 }
               }}
               disabled={!!selected}
-              className="w-full p-4 pb-0 resize-none outline-none bg-transparent
-                text-gray-900 dark:text-white placeholder-gray-400
+              className="w-full p-3 sm:p-4 pb-0 resize-none outline-none bg-transparent
+                text-gray-900 dark:text-white placeholder-gray-400 text-sm sm:text-base
                 disabled:opacity-40 disabled:cursor-not-allowed"
               placeholder={
                 selected
@@ -341,7 +345,7 @@ Include ALL of the following sections in this order:
               }
               rows={3}
             />
-            <div className="flex justify-between items-center px-3 pb-3 pt-2">
+            <div className="flex justify-between items-center px-3 sm:px-4 pb-3 pt-2">
               <p className="text-xs text-gray-500">
                 {user ? "Private repos supported" : "Sign in to access private repos"}
               </p>
@@ -349,12 +353,12 @@ Include ALL of the following sections in this order:
           </div>
 
           {/* Tone selector */}
-          <div className="flex gap-2 justify-center mt-5">
+          <div className="flex gap-2 justify-center mt-4 sm:mt-5 flex-wrap">
             {tones.map((t) => (
               <button
                 key={t}
                 onClick={() => setTone(t)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${
+                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium capitalize transition-colors active:scale-95 ${
                   tone === t
                     ? "bg-indigo-600 text-white"
                     : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
@@ -369,14 +373,15 @@ Include ALL of the following sections in this order:
           <button
             onClick={handleSend}
             disabled={generating || (!selected && !message.trim())}
-            className="mt-4 w-full max-w-xl mx-auto flex items-center justify-center gap-2
-              bg-indigo-600 hover:bg-indigo-700
+            className="mt-4 w-full flex items-center justify-center gap-2
+              bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800
               disabled:opacity-40 disabled:cursor-not-allowed
-              text-white font-semibold py-3 rounded-xl transition-colors"
+              text-white font-semibold py-3 sm:py-3.5 rounded-xl transition-colors
+              text-sm sm:text-base active:scale-[0.99]"
           >
             {generating ? (
               <>
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                 </svg>
@@ -384,7 +389,7 @@ Include ALL of the following sections in this order:
               </>
             ) : !user ? (
               <>
-                <GitHubIcon className="w-4 h-4" />
+                <GitHubIcon className="w-4 h-4 shrink-0" />
                 Sign in & Generate →
               </>
             ) : (
@@ -392,11 +397,18 @@ Include ALL of the following sections in this order:
             )}
           </button>
 
-          {error && <p className="mt-3 text-red-400 text-sm">{error}</p>}
+          {error && (
+            <p className="mt-3 text-red-400 text-xs sm:text-sm px-2 text-center break-words">
+              {error}
+            </p>
+          )}
 
           {!user && (
-            <p className="mt-4 text-sm text-gray-400">
-              <button onClick={signInWithGitHub} className="text-indigo-400 hover:underline">
+            <p className="mt-4 text-xs sm:text-sm text-gray-400">
+              <button
+                onClick={signInWithGitHub}
+                className="text-indigo-400 hover:underline"
+              >
                 Sign in with GitHub
               </button>{" "}
               to browse your repos.
@@ -406,7 +418,12 @@ Include ALL of the following sections in this order:
           {user && (
             <p className="mt-6 text-xs text-gray-400 dark:text-gray-600">
               AI powered by{" "}
-              <a href="https://puter.com" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">
+              <a
+                href="https://puter.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-indigo-400 hover:underline"
+              >
                 Puter
               </a>{" "}
               — no API key required.
