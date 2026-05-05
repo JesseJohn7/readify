@@ -49,6 +49,24 @@ function DownloadIcon({ className }: { className?: string }) {
   );
 }
 
+function EditIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+
+function EyeIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface StoredResult {
   readme: string;
@@ -71,6 +89,8 @@ export default function GeneratePage() {
   const supabase = createClient();
 
   const [data, setData] = useState<StoredResult | null>(null);
+  const [readme, setReadme] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [commitStatus, setCommitStatus] = useState<"idle" | "success" | "error">("idle");
@@ -79,21 +99,23 @@ export default function GeneratePage() {
   useEffect(() => {
     const stored = sessionStorage.getItem("readify_result");
     if (!stored) { router.push("/"); return; }
-    setData(JSON.parse(stored));
+    const parsed = JSON.parse(stored);
+    setData(parsed);
+    setReadme(parsed.readme);
   }, []);
 
   if (!data) return null;
 
   // ── Copy to clipboard ───────────────────────────────────────────────────────
   async function handleCopy() {
-    await navigator.clipboard.writeText(data!.readme);
+    await navigator.clipboard.writeText(readme);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
   // ── Download as .md file ────────────────────────────────────────────────────
   function handleDownload() {
-    const blob = new Blob([data!.readme], { type: "text/markdown" });
+    const blob = new Blob([readme], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -114,9 +136,8 @@ export default function GeneratePage() {
       if (!token) throw new Error("No GitHub token found. Please sign in again.");
 
       const { owner, repoSlug } = data!.repo;
-      const content = btoa(unescape(encodeURIComponent(data!.readme)));
+      const content = btoa(unescape(encodeURIComponent(readme)));
 
-      // Check if README.md already exists (to get its SHA for update)
       let sha: string | undefined;
       try {
         const checkRes = await fetch(
@@ -127,7 +148,7 @@ export default function GeneratePage() {
           const existing = await checkRes.json();
           sha = existing.sha;
         }
-      } catch { /* file doesn't exist yet, that's fine */ }
+      } catch { /* file doesn't exist yet */ }
 
       const body: Record<string, any> = {
         message: sha ? "docs: update README.md via Readify" : "docs: add README.md via Readify",
@@ -178,6 +199,21 @@ export default function GeneratePage() {
         </button>
 
         <div className="flex items-center gap-2">
+
+          {/* Edit / Preview toggle */}
+          <button
+            onClick={() => setIsEditing(!isEditing)}
+            title={isEditing ? "Preview" : "Edit"}
+            className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors
+              ${isEditing
+                ? "bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/40"
+                : "bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white"
+              }`}
+          >
+            {isEditing ? <EyeIcon className="w-4 h-4" /> : <EditIcon className="w-4 h-4" />}
+            <span className="hidden sm:inline">{isEditing ? "Preview" : "Edit"}</span>
+          </button>
+
           {/* Download */}
           <button
             onClick={handleDownload}
@@ -268,7 +304,8 @@ export default function GeneratePage() {
               <span className="bg-gray-800 px-2 py-0.5 rounded capitalize">{data.tone}</span>
               <span className="bg-gray-800 px-2 py-0.5 rounded">⭐ {data.repo.stars}</span>
             </div>
-            <a
+            
+              <a
               href={data.repo.url}
               target="_blank"
               rel="noopener noreferrer"
@@ -276,27 +313,83 @@ export default function GeneratePage() {
             >
               View repo <span>↗</span>
             </a>
+
+            {/* Edit hint */}
+            {!isEditing && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="mt-4 w-full flex items-center justify-center gap-1.5 text-xs
+                  text-gray-500 hover:text-indigo-400 transition-colors py-2
+                  border border-dashed border-gray-700 hover:border-indigo-500/50 rounded-lg"
+              >
+                <EditIcon className="w-3 h-3" />
+                Click to edit README
+              </button>
+            )}
           </div>
         </aside>
 
         {/* README content */}
         <div className="flex-1 min-w-0 px-6 lg:px-0">
           <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+
             {/* File tab */}
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-800 bg-gray-900">
-              <div className="flex gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-red-500/60" />
-                <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
-                <div className="w-3 h-3 rounded-full bg-green-500/60" />
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-gray-900">
+              <div className="flex items-center gap-3">
+                <div className="flex gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-red-500/60" />
+                  <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
+                  <div className="w-3 h-3 rounded-full bg-green-500/60" />
+                </div>
+                <span className="text-xs text-gray-500 ml-2">README.md</span>
               </div>
-              <span className="text-xs text-gray-500 ml-2">README.md</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                isEditing
+                  ? "bg-indigo-500/20 text-indigo-400"
+                  : "bg-gray-800 text-gray-500"
+              }`}>
+                {isEditing ? "editing" : "preview"}
+              </span>
             </div>
 
-            {/* Raw markdown */}
-            <pre className="p-6 text-sm text-gray-300 leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono">
-              {data.readme}
-            </pre>
+            {/* Edit mode */}
+            {isEditing ? (
+              <textarea
+                value={readme}
+                onChange={(e) => setReadme(e.target.value)}
+                spellCheck={false}
+                autoFocus
+                className="w-full min-h-[70vh] p-6 bg-gray-950 text-sm text-gray-300
+                  leading-relaxed font-mono resize-none outline-none
+                  focus:ring-1 focus:ring-indigo-500/50 transition-shadow"
+                placeholder="Edit your README here..."
+              />
+            ) : (
+              /* Preview mode */
+              <pre
+                onClick={() => setIsEditing(true)}
+                title="Click to edit"
+                className="p-6 text-sm text-gray-300 leading-relaxed overflow-x-auto
+                  whitespace-pre-wrap font-mono cursor-text min-h-[70vh]
+                  hover:bg-gray-900/50 transition-colors"
+              >
+                {readme}
+              </pre>
+            )}
           </div>
+
+          {/* Word / char count */}
+          <p className="mt-2 text-xs text-gray-600 text-right px-1">
+            {readme.split(/\s+/).filter(Boolean).length} words · {readme.length} chars
+            {isEditing && (
+              <button
+                onClick={() => setIsEditing(false)}
+                className="ml-3 text-indigo-400 hover:underline"
+              >
+                Done editing
+              </button>
+            )}
+          </p>
         </div>
       </div>
     </div>
