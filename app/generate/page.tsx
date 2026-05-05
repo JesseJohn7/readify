@@ -61,6 +61,15 @@ function SaveIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+function SparkleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z" />
+      <path d="M19 15l.75 2.25L22 18l-2.25.75L19 21l-.75-2.25L16 18l2.25-.75z" />
+      <path d="M5 3l.75 2.25L8 6l-2.25.75L5 9l-.75-2.25L2 6l2.25-.75z" />
+    </svg>
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface RepoInfo {
@@ -82,6 +91,7 @@ interface StoredResult {
 }
 
 type Mode = "preview" | "edit";
+type DescStatus = "idle" | "generating" | "ready" | "pushing" | "success" | "error";
 
 export default function GeneratePage() {
   const router = useRouter();
@@ -92,17 +102,19 @@ export default function GeneratePage() {
   const [draftReadme, setDraftReadme] = useState("");
   const [mode, setMode] = useState<Mode>("preview");
   const [hasUnsaved, setHasUnsaved] = useState(false);
-
-  // fileSha: the SHA of the existing README.md on GitHub.
-  // Kept in state so re-pushes always send the correct SHA for updates.
   const [fileSha, setFileSha] = useState<string | null>(null);
+
+  // ── Description state ──────────────────────────────────────────────────────
+  const [repoDesc, setRepoDesc] = useState("");
+  const [descStatus, setDescStatus] = useState<DescStatus>("idle");
+  const [descError, setDescError] = useState("");
+  const [descEditing, setDescEditing] = useState(false);
 
   const [copied, setCopied] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [commitStatus, setCommitStatus] = useState<"idle" | "success" | "error">("idle");
   const [commitMsg, setCommitMsg] = useState("");
 
-  // ── Load from sessionStorage ───────────────────────────────────────────────
   useEffect(() => {
     const stored = sessionStorage.getItem("readify_result");
     if (!stored) { router.push("/"); return; }
@@ -110,20 +122,87 @@ export default function GeneratePage() {
     setData(parsed);
     setSavedReadme(parsed.readme);
     setDraftReadme(parsed.readme);
+    // Pre-fill description with existing repo description if present
+    if (parsed.repo.description) setRepoDesc(parsed.repo.description);
   }, []);
 
   if (!data) return null;
-
   const repo: RepoInfo = data.repo;
 
-  // ── Enter edit mode ────────────────────────────────────────────────────────
+  // ── Generate description via Puter ─────────────────────────────────────────
+  async function handleGenerateDesc() {
+    setDescStatus("generating");
+    setDescError("");
+    try {
+      const puter = (window as any).puter;
+      if (!puter) throw new Error("Puter not available.");
+
+      const prompt = `Based on this README, write a single short GitHub repository description (max 150 characters, no quotes, no punctuation at end, plain text only — this goes directly into the GitHub "About" field):
+
+${savedReadme.slice(0, 2000)}`;
+
+      const response = await puter.ai.chat(prompt, { model: "gpt-4o-mini" });
+      const desc: string =
+        response?.message?.content?.[0]?.text ??
+        response?.message?.content ??
+        response?.text ??
+        (typeof response === "string" ? response : "");
+
+      if (!desc.trim()) throw new Error("AI returned empty description.");
+
+      // Enforce 350 char GitHub limit just in case
+      setRepoDesc(desc.trim().slice(0, 350));
+      setDescStatus("ready");
+      setDescEditing(true);
+    } catch (e: any) {
+      setDescError(e.message || "Failed to generate description.");
+      setDescStatus("error");
+    }
+  }
+
+  // ── Push description to GitHub ─────────────────────────────────────────────
+  async function handlePushDesc() {
+    if (!repoDesc.trim()) return;
+    setDescStatus("pushing");
+    setDescError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.provider_token;
+      if (!token) throw new Error("No GitHub token. Please sign in again.");
+
+      const res = await fetch(
+        `https://api.github.com/repos/${repo.owner}/${repo.repoSlug}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Accept: "application/vnd.github+json",
+          },
+          body: JSON.stringify({ description: repoDesc.trim() }),
+        }
+      );
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || `GitHub error: ${res.status}`);
+      }
+
+      setDescStatus("success");
+      setDescEditing(false);
+    } catch (e: any) {
+      setDescError(e.message || "Failed to push description.");
+      setDescStatus("error");
+    }
+  }
+
+  // ── Edit mode ──────────────────────────────────────────────────────────────
   function enterEdit() {
     setDraftReadme(savedReadme);
     setHasUnsaved(false);
     setMode("edit");
   }
 
-  // ── Save ───────────────────────────────────────────────────────────────────
   function handleSave() {
     setSavedReadme(draftReadme);
     const stored = sessionStorage.getItem("readify_result");
@@ -136,21 +215,18 @@ export default function GeneratePage() {
     setMode("preview");
   }
 
-  // ── Discard ────────────────────────────────────────────────────────────────
   function handleDiscard() {
     setDraftReadme(savedReadme);
     setHasUnsaved(false);
     setMode("preview");
   }
 
-  // ── Copy ───────────────────────────────────────────────────────────────────
   async function handleCopy() {
     await navigator.clipboard.writeText(savedReadme);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // ── Download ───────────────────────────────────────────────────────────────
   function handleDownload() {
     const blob = new Blob([savedReadme], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
@@ -161,9 +237,7 @@ export default function GeneratePage() {
     URL.revokeObjectURL(url);
   }
 
-  // ── Push to GitHub ─────────────────────────────────────────────────────────
-  // Always fetches the latest SHA before pushing so repeat pushes always
-  // update (not duplicate) the file — even across page reloads.
+  // ── Push README to GitHub ──────────────────────────────────────────────────
   async function handleCommit() {
     setCommitting(true);
     setCommitStatus("idle");
@@ -176,33 +250,24 @@ export default function GeneratePage() {
 
       const { owner, repoSlug } = repo;
 
-      // Always fetch the latest SHA so repeated pushes update correctly
       let currentSha: string | undefined = fileSha ?? undefined;
       try {
         const checkRes = await fetch(
           `https://api.github.com/repos/${owner}/${repoSlug}/contents/README.md`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: "application/vnd.github+json",
-            },
-          }
+          { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" } }
         );
         if (checkRes.ok) {
           const existing = await checkRes.json();
           currentSha = existing.sha;
-          setFileSha(existing.sha); // keep state in sync
+          setFileSha(existing.sha);
         }
-      } catch { /* file doesn't exist yet — first push */ }
+      } catch { /* new file */ }
 
-      // Encode content as base64 (handles unicode correctly)
       const utf8Bytes = new TextEncoder().encode(savedReadme);
       const base64 = btoa(String.fromCharCode(...Array.from(utf8Bytes)));
 
       const body: Record<string, unknown> = {
-        message: currentSha
-          ? "docs: update README.md via Readify"
-          : "docs: add README.md via Readify",
+        message: currentSha ? "docs: update README.md via Readify" : "docs: add README.md via Readify",
         content: base64,
       };
       if (currentSha) body.sha = currentSha;
@@ -225,10 +290,8 @@ export default function GeneratePage() {
         throw new Error(err.message || `GitHub error: ${commitRes.status}`);
       }
 
-      // Store the new SHA returned from GitHub for the next push
       const commitData = await commitRes.json();
-      const newSha = commitData?.content?.sha;
-      if (newSha) setFileSha(newSha);
+      if (commitData?.content?.sha) setFileSha(commitData.content.sha);
 
       setCommitStatus("success");
       setCommitMsg(currentSha ? "README.md updated on GitHub ✓" : "README.md pushed to GitHub ✓");
@@ -247,11 +310,8 @@ export default function GeneratePage() {
       {/* Top bar */}
       <header className="sticky top-0 z-10 flex items-center justify-between px-6 py-4
         bg-gray-950/90 backdrop-blur border-b border-gray-800">
-
-        <button
-          onClick={() => router.push("/")}
-          className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
-        >
+        <button onClick={() => router.push("/")}
+          className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
           <ArrowLeftIcon className="w-4 h-4" />
           Back
         </button>
@@ -265,23 +325,18 @@ export default function GeneratePage() {
                 <EditIcon className="w-4 h-4" />
                 <span className="hidden sm:inline">Edit</span>
               </button>
-
               <button onClick={handleDownload}
                 className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg
                   bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors">
                 <DownloadIcon className="w-4 h-4" />
                 <span className="hidden sm:inline">Download</span>
               </button>
-
               <button onClick={handleCopy}
                 className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg
                   bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors">
-                {copied
-                  ? <CheckIcon className="w-4 h-4 text-green-400" />
-                  : <CopyIcon className="w-4 h-4" />}
+                {copied ? <CheckIcon className="w-4 h-4 text-green-400" /> : <CopyIcon className="w-4 h-4" />}
                 <span className="hidden sm:inline">{copied ? "Copied!" : "Copy"}</span>
               </button>
-
               <button onClick={handleCommit} disabled={committing}
                 className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg
                   bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed
@@ -323,14 +378,12 @@ export default function GeneratePage() {
         </div>
       </header>
 
-      {/* Unsaved warning banner */}
+      {/* Banners */}
       {mode === "edit" && hasUnsaved && (
         <div className="px-6 py-2 text-xs text-center bg-yellow-900/30 text-yellow-400 border-b border-yellow-800/50">
           You have unsaved changes — hit <strong>Save</strong> to keep them or <strong>Discard</strong> to revert.
         </div>
       )}
-
-      {/* Commit status banner */}
       {commitStatus !== "idle" && (
         <div className={`px-6 py-3 text-sm text-center font-medium ${
           commitStatus === "success"
@@ -339,12 +392,8 @@ export default function GeneratePage() {
         }`}>
           {commitMsg}
           {commitStatus === "success" && (
-            
-             <a href={repo.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ml-2 underline hover:text-white"
-            >
+            <a href={repo.url} target="_blank" rel="noopener noreferrer"
+              className="ml-2 underline hover:text-white">
               View on GitHub →
             </a>
           )}
@@ -355,7 +404,9 @@ export default function GeneratePage() {
       <div className="flex-1 flex flex-col lg:flex-row gap-0 max-w-7xl w-full mx-auto px-0 lg:px-6 py-6">
 
         {/* Sidebar */}
-        <aside className="lg:w-64 shrink-0 px-6 lg:px-0 mb-6 lg:mb-0 lg:pr-6">
+        <aside className="lg:w-64 shrink-0 px-6 lg:px-0 mb-6 lg:mb-0 lg:pr-6 space-y-4">
+
+          {/* Repo info */}
           <div className="bg-gray-900 rounded-xl p-4 border border-gray-800">
             <div className="flex items-center gap-2 mb-3">
               <GitHubIcon className="w-4 h-4 text-gray-400" />
@@ -373,12 +424,8 @@ export default function GeneratePage() {
               )}
               <span className="bg-gray-800 px-2 py-0.5 rounded">⭐ {repo.stars}</span>
             </div>
-            
-              < a href={repo.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 text-xs text-indigo-400 hover:underline flex items-center gap-1"
-            >
+            <a href={repo.url} target="_blank" rel="noopener noreferrer"
+              className="mt-3 text-xs text-indigo-400 hover:underline flex items-center gap-1">
               View repo <span>↗</span>
             </a>
             {mode === "preview" && (
@@ -391,13 +438,125 @@ export default function GeneratePage() {
               </button>
             )}
           </div>
+
+          {/* ── Repo Description card ── */}
+          <div className="bg-gray-900 rounded-xl p-4 border border-gray-800">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-medium text-gray-300">Repo Description</span>
+              {descStatus === "success" && (
+                <span className="text-xs text-green-400 flex items-center gap-1">
+                  <CheckIcon className="w-3 h-3" /> Pushed
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+              The short "About" blurb shown on your GitHub repo page.
+            </p>
+
+            {/* Generate button — shown when no description yet */}
+            {descStatus === "idle" && (
+              <button onClick={handleGenerateDesc}
+                className="w-full flex items-center justify-center gap-1.5 text-xs
+                  py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700
+                  text-white transition-colors">
+                <SparkleIcon className="w-3 h-3" />
+                Generate description
+              </button>
+            )}
+
+            {/* Generating spinner */}
+            {descStatus === "generating" && (
+              <div className="flex items-center justify-center gap-2 py-2 text-xs text-gray-400">
+                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+                Generating...
+              </div>
+            )}
+
+            {/* Editable description + push */}
+            {(descStatus === "ready" || descStatus === "pushing" || descStatus === "success" || descStatus === "error") && repoDesc && (
+              <div className="space-y-2">
+                <textarea
+                  value={repoDesc}
+                  onChange={(e) => {
+                    setRepoDesc(e.target.value.slice(0, 350));
+                    if (descStatus === "success") setDescStatus("ready");
+                  }}
+                  rows={3}
+                  maxLength={350}
+                  className="w-full bg-gray-800 text-xs text-gray-200 rounded-lg p-2.5
+                    resize-none outline-none border border-gray-700
+                    focus:border-indigo-500/60 transition-colors leading-relaxed"
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-600">{repoDesc.length}/350</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleGenerateDesc}
+                      title="Regenerate"
+                      className="text-xs text-gray-500 hover:text-indigo-400 transition-colors"
+                    >
+                      ↺ Redo
+                    </button>
+                    <button
+                      onClick={handlePushDesc}
+                      disabled={descStatus === "pushing" || !repoDesc.trim()}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
+                        bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50
+                        disabled:cursor-not-allowed text-white transition-colors"
+                    >
+                      {descStatus === "pushing" ? (
+                        <>
+                          <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                          </svg>
+                          Pushing...
+                        </>
+                      ) : descStatus === "success" ? (
+                        <>
+                          <CheckIcon className="w-3 h-3 text-green-400" />
+                          Push again
+                        </>
+                      ) : (
+                        <>
+                          <GitHubIcon className="w-3 h-3" />
+                          Push
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {descStatus === "error" && descError && (
+                  <p className="text-xs text-red-400">{descError}</p>
+                )}
+                {descStatus === "success" && (
+                  <p className="text-xs text-green-400">Description updated on GitHub ✓</p>
+                )}
+              </div>
+            )}
+
+            {/* Error with no description */}
+            {descStatus === "error" && !repoDesc && (
+              <div className="space-y-2">
+                <p className="text-xs text-red-400">{descError}</p>
+                <button onClick={handleGenerateDesc}
+                  className="w-full text-xs py-1.5 px-3 rounded-lg bg-gray-800
+                    hover:bg-gray-700 text-gray-300 transition-colors">
+                  Try again
+                </button>
+              </div>
+            )}
+          </div>
+
         </aside>
 
         {/* README panel */}
         <div className="flex-1 min-w-0 px-6 lg:px-0">
           <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-
-            {/* File tab */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
               <div className="flex items-center gap-3">
                 <div className="flex gap-1.5">
@@ -408,9 +567,7 @@ export default function GeneratePage() {
                 <span className="text-xs text-gray-500 ml-2">README.md</span>
               </div>
               <span className={`text-xs px-2 py-0.5 rounded-full ${
-                mode === "edit"
-                  ? "bg-indigo-500/20 text-indigo-400"
-                  : "bg-gray-800 text-gray-500"
+                mode === "edit" ? "bg-indigo-500/20 text-indigo-400" : "bg-gray-800 text-gray-500"
               }`}>
                 {mode === "edit" ? "editing" : "preview"}
               </span>
@@ -436,7 +593,6 @@ export default function GeneratePage() {
             )}
           </div>
 
-          {/* Footer */}
           <div className="mt-2 flex items-center justify-between px-1">
             <span className="text-xs text-gray-600">
               {savedReadme.split(/\s+/).filter(Boolean).length} words · {savedReadme.length} chars
